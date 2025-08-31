@@ -1,0 +1,28 @@
+{
+  "name": "userscript",
+  "version": "1.6.1",
+  "author": "mat",
+  "description": "A somewhat reliable pathfinder for neal.fun's Internet Roadtrip.",
+  "license": "0BSD",
+  "module": "index.ts",
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c --watch"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^12.1.4",
+    "rollup": "^4.45.1",
+    "rollup-plugin-userscript": "^0.3.7",
+    "tslib": "^2.8.1",
+    "@violentmonkey/types": "^0.2.2",
+    "internet-roadtrip-framework": "^0.4.1-beta",
+    "maplibre-gl": "5.3.1",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "private": true,
+  "type": "module"
+}

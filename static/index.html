@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Internet Roadtrip Pathfinder</title>
+
+  <script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet" />
+
+  <style>
+    body,
+    html {
+      margin: 0;
+      padding: 0;
+      font-family: sans-serif;
+      width: 100%;
+      height: 100%;
+      background-color: #fff;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #map {
+      flex: 1;
+    }
+
+    #header {
+      margin: 0.5em;
+    }
+
+    #debug-info-container {
+      display: flex;
+      gap: 1em;
+      margin-top: 0.5em;
+    }
+
+    #debug-info-container p {
+      margin: 0;
+    }
+
+    #heuristic-factor-container {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5em;
+    }
+
+    #heuristic-factor-value {
+      width: 2em;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="header">
+    <div>
+      <button id="run" disabled>Calculate path</button>
+      <label>
+        Start
+        <input type="text" id="start" placeholder="lat, lng" value="47.45647413331853, -69.99669220097549" />
+      </label>
+      <label>
+        End
+        <input type="text" id="end" placeholder="lat, lng" value="47.83858537115171, -69.88096420671825" />
+      </label>
+      <label>
+        Heading
+        <input type="text" id="heading" placeholder="degrees" value="36.656704" />
+      </label>
+      <label>
+        Stop 1
+        <input type="text" id="stop1" placeholder="lat, lng" value="" />
+      </label>
+      <label>
+        Stop 2
+        <input type="text" id="stop2" placeholder="lat, lng" value="" />
+      </label>
+      <label>
+        Stop 3
+        <input type="text" id="stop3" placeholder="lat, lng" value="" />
+      </label>
+      <label id="heuristic-factor-container">
+        Path accuracy: <span id="heuristic-factor-value">3.3</span>
+        <input type="range" id="heuristic-factor" min="1.0" max="4.0" step="0.01" value="3.3" />
+      </label>
+      <label id="allow-long-jumps-container">
+        Allow long jumps: <input type="checkbox" id="allow-long-jumps" checked />
+      </label>
+    </div>
+    <div id="debug-info-container">
+      <p>
+        Percent:
+        <span id="debug-percent-done">—</span>
+      </p>
+      <p>
+        Elapsed:
+        <span id="debug-elapsed-time">—</span>
+      </p>
+      <p>
+        Nodes considered:
+        <span id="debug-nodes-considered">—</span>
+      </p>
+      <p>
+        Estimated calculation time remaining:
+        <span id="debug-estimated-time-remaining">—</span>
+      </p>
+      <p>
+        Estimated path cost:
+        <span id="debug-best-path-cost">—</span>
+      </p>
+    </div>
+    <div></div>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    // const BASE_API = "https://ir.matdoes.dev";
+    // const BASE_API = "http://localhost:2397";
+    const BASE_API = "";
+
+    const map = new maplibregl.Map({
+      container: "map",
+      style: "https://tiles.openfreemap.org/styles/liberty",
+      center: [-70.42978, 43.509514],
+      zoom: 5,
+    });
+
+    const runEl = document.getElementById("run");
+    const startEl = document.getElementById("start");
+    const endEl = document.getElementById("end");
+    const headingEl = document.getElementById("heading");
+    const heuristicFactorEl = document.getElementById("heuristic-factor");
+    const allowLongJumpsEl = document.getElementById("allow-long-jumps");
+
+    const points = {
+      start: startEl,
+      end: endEl,
+      stop1: document.getElementById("stop1"),
+      stop2: document.getElementById("stop2"),
+      stop3: document.getElementById("stop3"),
+    };
+
+    const colors = {
+      start: "#0f0",
+      end: "#f00",
+      best_path: "#f0f",
+      current_path: "#00f",
+      stop1: "#ff0",
+      stop2: "#ff0",
+      stop3: "#ff0",
+    };
+
+    map.on("load", async () => {
+      function setupPathSource(pathId) {
+        map.addSource(pathId, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: [],
+            },
+          },
+        });
+        map.addLayer({
+          id: pathId,
+          type: "line",
+          source: pathId,
+          layout: {
+            "line-join": "round",
+            "line-cap": "round",
+          },
+          paint: {
+            "line-color": colors[pathId],
+            "line-width": 4,
+          },
+        });
+      }
+      setupPathSource("best_path");
+      setupPathSource("current_path");
+
+      function setupPointSource(pointId) {
+        map.addSource(pointId, {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: [],
+          },
+        });
+        map.addLayer({
+          id: pointId,
+          type: "circle",
+          source: pointId,
+          paint: {
+            "circle-radius": 6,
+            "circle-color": colors[pointId],
+          },
+        });
+      }
+
+      const currentPaths = {};
+      async function updatePathSource(pathId, keepPrefixLength, append) {
+        console.log(
+          "updatePathSource",
+          pathId,
+          keepPrefixLength,
+          append.length
+        );
+
+        let curPath = currentPaths[pathId] ?? [];
+        curPath = curPath.slice(0, keepPrefixLength);
+        curPath.push(...append);
+        currentPaths[pathId] = curPath;
+
+        map.getSource(pathId).setData({
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "LineString",
+            coordinates: curPath,
+          },
+        });
+      }
+
+      function updatePointSource(pointId, coords) {
+        if (!coords) {
+          // if no coords are passed then the point is removed
+          const oldRoute = map.getSource(pointId);
+          if (oldRoute) {
+            map.removeLayer(pointId);
+            map.removeSource(pointId);
+          }
+          return;
+        }
+
+        let source = map.getSource(pointId);
+        if (!source) {
+          setupPointSource(pointId, "#0f0");
+          source = map.getSource(pointId);
+        }
+
+        source.setData({
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Point",
+                coordinates: coords,
+              },
+            },
+          ],
+        });
+      }
+
+      function updatePointSourceFromInput(pointId) {
+        const el = document.getElementById(pointId);
+        const coords = readCoordinateFromInput(el);
+        if (!coords) {
+          updatePointSource(pointId, null);
+          return;
+        }
+        const [lat, lng] = coords;
+        // intentionally flipped because that's what geojson wants
+        updatePointSource(pointId, [lng, lat]);
+      }
+
+      for (const [pointId, el] of Object.entries(points)) {
+        setupPointSource(pointId);
+        updatePointSourceFromInput(pointId);
+        el.addEventListener("change", () => {
+          updatePointSourceFromInput(pointId);
+        });
+      }
+
+      function tileToLatLng(tile, size) {
+        // let lon_deg = self.x as CoordPrecision / SCALE * 360. - 180.;
+        // let lat_rad = CoordPrecision::atan(CoordPrecision::sinh(
+        //     PI * (1.0 - 2.0 * self.y as CoordPrecision / SCALE),
+        // ));
+        // let lat_deg = CoordPrecision::to_degrees(lat_rad);
+        // Coords {
+        //     lat: lat_deg,
+        //     lng: lon_deg,
+        // }
+
+        const SCALE = 1 << size;
+
+        const lngDeg = (tile[0] / SCALE) * 360 - 180;
+        const latRad = Math.atan(
+          Math.sinh(Math.PI * (1 - (2 * tile[1]) / SCALE))
+        );
+        const latDeg = (latRad * 180) / Math.PI;
+        return [lngDeg, latDeg];
+      }
+
+      let showingCachedTiles = false;
+      async function showCachedTiles() {
+        let res;
+        try {
+          res = await fetch(`${BASE_API}/stats`).then((r) => r.json());
+        } catch (e) {
+          console.error(e);
+        }
+        setTimeout(() => {
+          showCachedTiles();
+        }, 10_000);
+
+        console.log("res", res);
+
+        if (!res) return;
+
+        const coordinates = res.tiles.map((tile) => [
+          [
+            tileToLatLng([tile[0], tile[1]], tile[2]),
+            tileToLatLng([tile[0] + 1, tile[1]], tile[2]),
+            tileToLatLng([tile[0] + 1, tile[1] + 1], tile[2]),
+            tileToLatLng([tile[0], tile[1] + 1], tile[2]),
+            tileToLatLng([tile[0], tile[1]], tile[2]),
+          ],
+        ]);
+        console.log("coordinates", coordinates);
+
+        const newData = {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "MultiPolygon",
+            coordinates,
+          },
+        };
+
+        if (!showingCachedTiles) {
+          map.addSource("cached-tiles", {
+            type: "geojson",
+            data: newData,
+          });
+          showingCachedTiles = true;
+
+          map.addLayer({
+            id: "cached-tiles",
+            type: "fill",
+            source: "cached-tiles",
+            paint: {
+              "fill-color": "#aaa",
+              "fill-opacity": 0.2,
+            },
+          });
+        } else {
+          map.getSource("cached-tiles").setData(newData);
+        }
+      }
+
+      async function showNearbyPanos() {
+        const res = await fetch(
+          `${BASE_API}/nearby?lat=44.81593270427088&lng=-68.74159535724446`
+        ).then((r) => r.json());
+        console.log("res", res);
+        // draw points
+        map.addSource("nearby-panos", {
+          type: "geojson",
+          data: {
+            type: "FeatureCollection",
+            features: res.map((pano) => ({
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "Point",
+                coordinates: [pano[1], pano[0]],
+              },
+            })),
+          },
+        });
+        map.addLayer({
+          id: "nearby-panos",
+          type: "circle",
+          source: "nearby-panos",
+          paint: {
+            "circle-radius": 3,
+            "circle-color": "#00f",
+          },
+        });
+      }
+
+      showCachedTiles();
+      // showNearbyPanos();
+
+      heuristicFactorEl.addEventListener("input", () => {
+        const value = heuristicFactorEl.value;
+        document.getElementById("heuristic-factor-value").textContent = value;
+      });
+
+      function readCoordinateFromInput(el) {
+        const coords = el.value;
+        if (!coords) {
+          return null;
+        }
+        const [lat, lng] = coords.split(",").map(Number);
+        return [lat, lng];
+      }
+
+      let ws;
+
+      async function waitAndReconnect() {
+        console.log("Reconnecting to WebSocket");
+        // this timeout is 15 seconds because of a firefox quirk that makes it delay creating websockets if you do it too fast
+        await new Promise((r) => setTimeout(r, 15000));
+        console.log("Reconnecting...");
+        connect();
+      }
+
+      function connect() {
+        console.log("connecting to websocket");
+        ws = new WebSocket(BASE_API.replace("http", "ws") + "/path");
+        console.log("websocket created:", ws);
+
+        ws.addEventListener("close", async () => {
+          console.log("WebSocket closed.");
+          runEl.disabled = true;
+          waitAndReconnect();
+        });
+        ws.addEventListener("error", (e) => {
+          console.error("WebSocket error:", e);
+          ws.close();
+        });
+        ws.addEventListener("open", () => {
+          console.log("WebSocket connected.");
+          runEl.disabled = false;
+        });
+
+        ws.addEventListener("message", (e) => {
+          const data = JSON.parse(e.data);
+          if (data.type === "progress") {
+            onProgress(data);
+          } else if (data.type === "error") {
+            alert(data.message);
+          }
+        });
+      }
+
+      runEl.addEventListener("click", () => {
+        const heading = Number(headingEl.value);
+        const heuristicFactor = Number(heuristicFactorEl.value);
+        const allowLongJumps = allowLongJumpsEl.checked
+
+        const msg = {
+          kind: "path",
+          start: readCoordinateFromInput(startEl),
+          end: readCoordinateFromInput(endEl),
+          heading,
+          heuristic_factor: heuristicFactor,
+          no_long_jumps: !allowLongJumps,
+          stops: [],
+        };
+        for (const stopId of ["stop1", "stop2", "stop3"]) {
+          const coords = readCoordinateFromInput(points[stopId]);
+          if (coords) {
+            msg.stops.push(coords);
+          }
+        }
+
+        for (const pathId in currentPaths) delete currentPaths[pathId];
+
+        ws.send(JSON.stringify(msg));
+      });
+      connect();
+
+      function onProgress(data) {
+        console.log(`${data.percent_done * 100}% done`);
+        console.log(
+          `estimated seconds remaining: ${data.estimated_seconds_remaining}`
+        );
+        console.log("elapsed seconds: ", data.elapsed_seconds);
+        console.log("nodes considered: ", data.nodes_considered);
+
+        updatePathSource(
+          "best_path",
+          data.best_path_keep_prefix_length,
+          data.best_path_append
+        );
+        updatePathSource(
+          "current_path",
+          data.current_path_keep_prefix_length,
+          data.current_path_append
+        );
+
+        function setDebugInfo(id, value) {
+          const el = document.getElementById(id);
+          el.textContent = value;
+        }
+
+        function prettyTime(seconds) {
+          const hours = Math.floor(seconds / 3600);
+          const minutes = Math.floor((seconds % 3600) / 60);
+          const secondsLeft = Math.floor(seconds % 60);
+          const msLeft = Math.floor((seconds * 1000) % 1000);
+          if (hours > 0) {
+            return `${hours}h ${minutes}m ${secondsLeft}s`;
+          } else if (minutes > 0) {
+            return `${minutes}m ${secondsLeft}s`;
+          } else if (secondsLeft > 0) {
+            return `${secondsLeft}s ${msLeft}ms`;
+          } else {
+            return `${msLeft}ms`;
+          }
+        }
+
+        setDebugInfo(
+          "debug-percent-done",
+          `${(data.percent_done * 100).toFixed(2)}%`
+        );
+        setDebugInfo("debug-elapsed-time", prettyTime(data.elapsed_seconds));
+        setDebugInfo(
+          "debug-nodes-considered",
+          data.nodes_considered.toLocaleString()
+        );
+        setDebugInfo(
+          "debug-estimated-time-remaining",
+          prettyTime(data.estimated_seconds_remaining)
+        );
+        setDebugInfo("debug-best-path-cost", prettyTime(data.best_path_cost));
+      }
+    });
+  </script>
+</body>
+
+</html>

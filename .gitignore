@@ -1,0 +1,26 @@
+/target
+
+# benchmarking and debugging
+flamegraph.svg
+perf.data
+perf.data.*
+profile.json.gz
+/out.txt
+callgrind.out.*
+*.log
+
+# google maps cookie to avoid ratelimits
+/nid.txt
+# database
+/cache
+/cache-*
+
+.vite
+node_modules/
+
+# personal scripts for running the program
+/run.sh
+/deploy.sh
+
+# userscript
+/static/pathfinder.user.js
