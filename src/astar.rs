@@ -23,13 +23,21 @@ use crate::{
 pub type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
 pub type FxIndexSet<T> = IndexSet<T, BuildHasherDefault<FxHasher>>;
 
-pub const MIN_HEURISTIC_FACTOR: f64 = 2.;
+pub const MIN_HEURISTIC_FACTOR: f64 = 1.;
 pub const RECOMMENDED_HEURISTIC_FACTOR: f64 = 3.3;
 pub const MAX_HEURISTIC_FACTOR: f64 = 4.;
 
+#[derive(Clone)]
 pub struct PathSettings {
     pub heuristic_factor: f64,
+    /// Disables portals/wormholes
     pub no_long_jumps: bool,
+    /// Whether we should use the cache that returns the allowed options per
+    /// node. This is meant for debugging/benchmarking purposes.
+    pub use_option_cache: bool,
+    /// A cost penalty that's applied when we go forward when there was more
+    /// than 1 option.
+    pub forward_penalty_on_intersections: Cost,
 }
 
 pub async fn astar(
@@ -176,7 +184,13 @@ pub async fn astar(
             };
         }
 
-        let neighbors = roadtrip::get_options(&node.pano, node.heading, allow_turnaround).await?;
+        let neighbors = roadtrip::get_options(
+            &node.pano,
+            node.heading,
+            allow_turnaround,
+            settings.use_option_cache,
+        )
+        .await?;
 
         if neighbors.turnaround {
             // we only allow the first attempted turnaround to work, since turnarounds are
@@ -186,12 +200,34 @@ pub async fn astar(
 
         let neighbor_count = neighbors.options.len();
         let node_loc = node.pano.loc;
+        let node_heading = node.heading;
         let approx_lng_m_per_degree = if settings.no_long_jumps {
             node_loc.calculate_lng_m_per_degree()
         } else {
             // don't bother calculating it if we're not gonna use it
             0.
         };
+
+        // the base delays are 5 and 9, but we add a little extra to account for
+        // latency (these numbers were obtained by analyzing historical data)
+        let base_neighbor_cost: Cost = match neighbor_count {
+            1 => 5.875,
+            _ => 9.625,
+        };
+
+        let mut is_likely_intersection_to_penalize = false;
+        if settings.forward_penalty_on_intersections > 0. {
+            if neighbor_count > 1 && settings.forward_penalty_on_intersections > 0. {
+                // if all of the options are forward-ish, don't count it as an intersection
+                for neighbor in neighbors.options.iter() {
+                    let heading_diff = (neighbor.heading - node_heading).abs();
+                    if heading_diff > 30. {
+                        is_likely_intersection_to_penalize = true;
+                        break;
+                    }
+                }
+            }
+        }
 
         for (i, neighbor) in neighbors.options.into_iter().enumerate() {
             if settings.no_long_jumps {
@@ -203,16 +239,18 @@ pub async fn astar(
                 }
             }
 
-            // the base delays are 5 and 9, but we add a little extra to account for
-            // latency (these numbers were obtained by analyzing historical data)
-            let mut neighbor_cost: Cost = match neighbor_count {
-                1 => 5.875,
-                _ => 9.625,
-            };
+            let mut neighbor_cost = base_neighbor_cost;
 
             // tiebreaker, prefer going forwards (usually the first option)
-            if i == 0 {
+            if i == 0 && neighbor_count > 1 {
                 neighbor_cost -= 0.001;
+            }
+
+            if is_likely_intersection_to_penalize {
+                let heading_diff = (neighbor.heading - node_heading).abs();
+                if heading_diff < 30. {
+                    neighbor_cost += settings.forward_penalty_on_intersections;
+                }
             }
 
             let tentative_g_score = g_score + neighbor_cost;

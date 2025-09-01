@@ -23,13 +23,14 @@ pub async fn get_options(
     cur_pano: &Pano,
     cur_heading: f32,
     allow_turnaround: bool,
+    use_option_cache: bool,
 ) -> eyre::Result<PanoOptionsRes> {
     let mut turnaround = false;
-    let mut res = get_options_no_turnaround(cur_pano, cur_heading).await?;
+    let mut res = get_options_no_turnaround(cur_pano, cur_heading, use_option_cache).await?;
 
     // turnaround
     if allow_turnaround && res.options.is_empty() {
-        res = get_options_no_turnaround(cur_pano, cur_heading + 180.).await?;
+        res = get_options_no_turnaround(cur_pano, cur_heading + 180., use_option_cache).await?;
         turnaround = true;
     }
 
@@ -55,8 +56,10 @@ static GET_OPTIONS_CACHE: LazyLock<
 pub async fn get_options_no_turnaround(
     cur_pano: &Pano,
     cur_heading: f32,
+    use_option_cache: bool,
 ) -> eyre::Result<BasePanoOptionsRes> {
     if ENABLE_OPTION_CACHE
+        && use_option_cache
         && let Some(res) = GET_OPTIONS_CACHE.get(&(cur_heading.to_bits(), cur_pano.id))
     {
         return Ok(res.clone());
@@ -152,7 +155,7 @@ pub async fn get_options_no_turnaround(
     let res = BasePanoOptionsRes {
         options: options.into(),
     };
-    if ENABLE_OPTION_CACHE {
+    if ENABLE_OPTION_CACHE && use_option_cache {
         GET_OPTIONS_CACHE.insert((cur_heading.to_bits(), cur_pano.id), res.clone());
     }
     Ok(res)

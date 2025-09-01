@@ -138,6 +138,10 @@ export function requestNewPath(
         start_pano: startPano,
         id: pathId,
         no_long_jumps: !SETTINGS.allow_long_jumps,
+        heuristic_factor: SETTINGS.heuristic_factor,
+        forward_penalty_on_intersections:
+            SETTINGS.forward_penalty_on_intersections,
+        use_option_cache: SETTINGS.use_option_cache,
     });
 }
 

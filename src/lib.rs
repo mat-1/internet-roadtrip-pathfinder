@@ -4,7 +4,6 @@
 use serde::{Deserialize, Serialize};
 
 pub mod astar;
-pub mod bench;
 pub mod db;
 pub mod math;
 pub mod model;

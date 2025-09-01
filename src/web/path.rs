@@ -20,7 +20,7 @@ use tracing::{debug, error, info};
 use crate::{
     FullProgressUpdate, ProgressUpdate,
     astar::{
-        self, MAX_HEURISTIC_FACTOR, MIN_HEURISTIC_FACTOR, PathSettings,
+        self, Cost, MAX_HEURISTIC_FACTOR, MIN_HEURISTIC_FACTOR, PathSettings,
         RECOMMENDED_HEURISTIC_FACTOR,
     },
     math,
@@ -55,13 +55,20 @@ struct GetPathQuery {
     #[serde(default)]
     stops: Vec<[f64; 2]>,
 
+    #[serde(default = "return_true")]
+    use_option_cache: bool,
+    #[serde(default)]
+    no_long_jumps: bool,
     #[serde(default = "get_recommended_heuristic_factor")]
     heuristic_factor: f64,
     #[serde(default)]
-    no_long_jumps: bool,
+    forward_penalty_on_intersections: Cost,
 }
 fn get_recommended_heuristic_factor() -> f64 {
     RECOMMENDED_HEURISTIC_FACTOR
+}
+fn return_true() -> bool {
+    true
 }
 
 pub async fn get_path(
@@ -194,7 +201,12 @@ async fn handle_get_path_query(tx: &mut mpsc::Sender<SocketEvent>, msg: GetPathQ
     let heuristic_factor = msg
         .heuristic_factor
         .clamp(MIN_HEURISTIC_FACTOR, MAX_HEURISTIC_FACTOR);
-    let no_long_jumps = msg.no_long_jumps;
+    let path_settings = PathSettings {
+        heuristic_factor,
+        no_long_jumps: msg.no_long_jumps,
+        use_option_cache: msg.use_option_cache,
+        forward_penalty_on_intersections: msg.forward_penalty_on_intersections,
+    };
 
     if stops.len() > 200 {
         return send_error(tx, "Too many stops (limit of 200)").await;
@@ -260,6 +272,7 @@ async fn handle_get_path_query(tx: &mut mpsc::Sender<SocketEvent>, msg: GetPathQ
         let start_pano_id = if i == 0 { msg.start_pano.clone() } else { None };
 
         let stop = *stop;
+        let path_settings = path_settings.clone();
         task_set.spawn(async move {
             let result = astar::astar(
                 cur,
@@ -267,10 +280,7 @@ async fn handle_get_path_query(tx: &mut mpsc::Sender<SocketEvent>, msg: GetPathQ
                 assumed_heading,
                 stop,
                 progress_update,
-                PathSettings {
-                    heuristic_factor,
-                    no_long_jumps,
-                },
+                path_settings,
             )
             .await;
             if let Err(err) = result {
