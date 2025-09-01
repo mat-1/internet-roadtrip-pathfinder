@@ -216,15 +216,13 @@ pub async fn astar(
         };
 
         let mut is_likely_intersection_to_penalize = false;
-        if settings.forward_penalty_on_intersections > 0. {
-            if neighbor_count > 1 && settings.forward_penalty_on_intersections > 0. {
-                // if all of the options are forward-ish, don't count it as an intersection
-                for neighbor in neighbors.options.iter() {
-                    let heading_diff = (neighbor.heading - node_heading).abs();
-                    if heading_diff > 30. {
-                        is_likely_intersection_to_penalize = true;
-                        break;
-                    }
+        if neighbor_count > 1 && settings.forward_penalty_on_intersections > 0. {
+            // if all of the options are forward-ish, don't count it as an intersection
+            for neighbor in neighbors.options.iter() {
+                let heading_diff = (neighbor.heading - node_heading).abs();
+                if heading_diff > 30. {
+                    is_likely_intersection_to_penalize = true;
+                    break;
                 }
             }
         }

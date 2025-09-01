@@ -54,7 +54,7 @@ pub fn migrate() -> eyre::Result<()> {
         let (key, data) = entry?;
         new_db
             .listentityphotos_db
-            .put(&mut new_txn, &key, &data)
+            .put(&mut new_txn, &key, data)
             .unwrap();
     }
 
