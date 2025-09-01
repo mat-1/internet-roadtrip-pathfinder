@@ -1,11 +1,16 @@
 import { refreshPath } from ".";
+import { pfWs } from "./api";
+import { LOG_PREFIX } from "./constants";
 import { clearCachedPaths, rerenderPath } from "./map/lines";
 
-export const SETTINGS = {
+export const DEFAULT_SETTINGS = {
     current_searching_path: true,
     allow_long_jumps: true,
-    remove_reached_stops: false
+    remove_reached_stops: false,
+    backend_url: "https://ir.matdoes.dev",
 };
+
+export const SETTINGS = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
 function loadSettingsFromSave() {
     const savedSettings: string = GM_getValue("settings") ?? "{}";
     for (const [k, v] of Object.entries(JSON.parse(savedSettings))) {
@@ -19,6 +24,7 @@ function saveSettings() {
 
 export function initSettingsTab() {
     loadSettingsFromSave();
+    console.log(LOG_PREFIX, "loaded settings:", SETTINGS);
 
     const settingsTab = IRF.ui.panel.createTabFor(GM.info, {
         tabName: "Pathfinder",
@@ -33,42 +39,90 @@ export function initSettingsTab() {
                 gap: 0.25rem;
                 display: flex;
                 align-items: center;
-                justify-content: space-between;
+            }
+            .field-group label {
+                flex: 1;
             }
         }
         `,
         className: "pathfinder-settings-tab-content",
     });
 
-    function addToggle(
-        label: string,
-        key: keyof typeof SETTINGS,
-        cb?: (value: boolean) => void
-    ) {
-        const id = `pathfinder-${key}`;
+    interface AddSettingOpts {
+        inputEl: HTMLInputElement;
+        label: string;
+        key: keyof typeof DEFAULT_SETTINGS;
+        hasResetBtn: boolean;
+        cb?: (
+            value: (typeof DEFAULT_SETTINGS)[keyof typeof DEFAULT_SETTINGS]
+        ) => void;
+    }
 
-        const toggleEl = document.createElement("input");
-        toggleEl.id = id;
-        toggleEl.type = "checkbox";
-        toggleEl.classList.add(IRF.ui.panel.styles.toggle);
-        toggleEl.checked = SETTINGS[key];
-        toggleEl.addEventListener("change", (e) => {
-            const value = toggleEl.checked;
-            SETTINGS[key] = value;
+    function addSetting(opts: AddSettingOpts) {
+        const id = `pathfinder-${opts.key}`;
+
+        opts.inputEl.id = id;
+
+        function setDisplayedValue(
+            v: (typeof DEFAULT_SETTINGS)[typeof opts.key]
+        ) {
+            if (typeof v === "boolean") opts.inputEl.checked = v;
+            else opts.inputEl.value = v;
+        }
+
+        setDisplayedValue(SETTINGS[opts.key]);
+
+        opts.inputEl.addEventListener("change", (e) => {
+            let newValue: (typeof DEFAULT_SETTINGS)[typeof opts.key];
+            if (typeof DEFAULT_SETTINGS[opts.key] === "boolean")
+                newValue = opts.inputEl.checked;
+            else newValue = opts.inputEl.value;
+            (SETTINGS as any)[opts.key] = newValue;
+
             saveSettings();
-            cb?.(value);
+            opts.cb?.(newValue);
         });
 
         const labelEl = document.createElement("label");
         labelEl.htmlFor = id;
-        labelEl.textContent = label;
-
+        labelEl.textContent = opts.label;
         const fieldGroupEl = document.createElement("div");
         fieldGroupEl.classList.add("field-group");
+        fieldGroupEl.append(labelEl, opts.inputEl);
 
-        fieldGroupEl.append(labelEl, toggleEl);
+        if (opts.hasResetBtn) {
+            const resetBtnEl = document.createElement("button");
+            resetBtnEl.textContent = "Reset";
+            fieldGroupEl.append(resetBtnEl);
+            resetBtnEl.addEventListener("click", () => {
+                const newValue = DEFAULT_SETTINGS[opts.key];
+                (SETTINGS as any)[opts.key] = newValue;
+                setDisplayedValue(newValue);
+                saveSettings();
+                opts.cb?.(newValue);
+            });
+        }
 
         settingsTab.container.appendChild(fieldGroupEl);
+    }
+
+    function addToggle(
+        label: string,
+        key: keyof typeof DEFAULT_SETTINGS,
+        cb?: (value: (typeof DEFAULT_SETTINGS)[typeof key]) => void
+    ) {
+        const inputEl = document.createElement("input");
+        inputEl.type = "checkbox";
+        inputEl.classList.add(IRF.ui.panel.styles.toggle);
+        addSetting({ inputEl, label, key, hasResetBtn: false, cb });
+    }
+    function addTextInput(
+        label: string,
+        key: keyof typeof DEFAULT_SETTINGS,
+        cb?: (value: (typeof DEFAULT_SETTINGS)[typeof key]) => void
+    ) {
+        const inputEl = document.createElement("input");
+        addSetting({ inputEl, label, key, hasResetBtn: true, cb });
     }
 
     addToggle("Show currently searching path", "current_searching_path", () => {
@@ -78,5 +132,11 @@ export function initSettingsTab() {
         clearCachedPaths();
         refreshPath();
     });
-    addToggle("Remove stops as they are reached", "remove_reached_stops")
+    addToggle("Remove stops as they are reached", "remove_reached_stops");
+
+    addTextInput("Custom backend URL", "backend_url", () => {
+        pfWs.close();
+        clearCachedPaths();
+        refreshPath();
+    });
 }

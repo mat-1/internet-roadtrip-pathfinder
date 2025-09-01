@@ -11,8 +11,6 @@ import {
 import { getLat, getLng } from "./pos";
 import { SETTINGS } from "./settings";
 
-const BASE_API = "https://ir.matdoes.dev";
-
 export interface PathfinderMessage {
     id: number;
 
@@ -29,7 +27,7 @@ export interface PathfinderMessage {
     current_path_append: GeoJSON.Position[];
 }
 
-let pfWs: WebSocket;
+export let pfWs: WebSocket;
 let queuedWebSocketMessages: string[] = [];
 
 export let calculatingPathId: number | undefined = undefined;
@@ -170,9 +168,11 @@ async function waitAndReconnect() {
     console.debug(LOG_PREFIX, "reconnecting...");
     connect();
 }
-function connect() {
+export function connect() {
     console.debug(LOG_PREFIX, "connecting to websocket");
-    pfWs = new WebSocket(BASE_API.replace("http", "ws") + "/path");
+    pfWs = new WebSocket(
+        SETTINGS.backend_url.replace("http", "ws").replace(/\/$/, "") + "/path"
+    );
     console.debug(LOG_PREFIX, "websocket created:", pfWs);
 
     pfWs.addEventListener("close", async () => {
@@ -201,7 +201,6 @@ function connect() {
         }
     });
 }
-connect();
 
 export async function waitUntilConnected() {
     if (pfWs.readyState !== 1) {

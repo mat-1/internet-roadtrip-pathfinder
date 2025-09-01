@@ -126,6 +126,8 @@ async function init() {
     tryInitMmt();
 
     initSettingsTab();
+    // this has to be done after settings are loaded so the backend url is correct
+    api.connect();
 
     await setupPathSources();
     // wait until the websocket is open
