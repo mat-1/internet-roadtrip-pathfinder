@@ -38,6 +38,9 @@ pub struct PathSettings {
     /// A cost penalty that's applied when we go forward when there was more
     /// than 1 option.
     pub forward_penalty_on_intersections: Cost,
+    /// A cost penalty that's applied when we make a turn that isn't sharp
+    /// enough. This is meant to help avoid wiggling.
+    pub non_sharp_turn_penalty: Cost,
 }
 
 pub async fn astar(
@@ -159,15 +162,6 @@ pub async fn astar(
                 );
             }
 
-            // debug!(
-            //     "Estimated cost to best node by heuristic: {}",
-            //     heuristic_of_best_node
-            // );
-            // debug!(
-            //     "Actual cost to best node: {}",
-            //     nodes.get_index(best_node_index).unwrap().1.g_score
-            // );
-
             *progress_update = ProgressUpdate {
                 percent_done: percent,
                 estimated_seconds_remaining: estimated_remaining,
@@ -210,19 +204,15 @@ pub async fn astar(
 
         // the base delays are 5 and 9, but we add a little extra to account for
         // latency (these numbers were obtained by analyzing historical data)
-        let base_neighbor_cost: Cost = match neighbor_count {
-            1 => 5.875,
-            _ => 9.625,
-        };
+        let base_neighbor_cost: Cost = if neighbor_count == 1 { 5.875 } else { 9.625 };
 
         let mut is_likely_intersection_to_penalize = false;
         if neighbor_count > 1 && settings.forward_penalty_on_intersections > 0. {
             // if all of the options are forward-ish, don't count it as an intersection
             for neighbor in neighbors.options.iter() {
                 let heading_diff = (neighbor.heading - node_heading).abs();
-                if heading_diff > 30. {
+                if heading_diff > 75. {
                     is_likely_intersection_to_penalize = true;
-                    break;
                 }
             }
         }
@@ -244,10 +234,14 @@ pub async fn astar(
                 neighbor_cost -= 0.001;
             }
 
-            if is_likely_intersection_to_penalize {
+            if is_likely_intersection_to_penalize || settings.non_sharp_turn_penalty > 0. {
                 let heading_diff = (neighbor.heading - node_heading).abs();
-                if heading_diff < 30. {
+                if heading_diff < 75. && settings.forward_penalty_on_intersections > 0. {
                     neighbor_cost += settings.forward_penalty_on_intersections;
+                }
+                if heading_diff > 20. && heading_diff < 80. && settings.non_sharp_turn_penalty > 0.
+                {
+                    neighbor_cost += settings.non_sharp_turn_penalty;
                 }
             }
 
@@ -257,7 +251,6 @@ pub async fn astar(
                 pano: neighbor.pano,
                 heading: neighbor.heading,
             };
-            // let neighbor_heuristic = heuristic(&neighbor_node, goal);
 
             let neighbor_heuristic;
             let neighbor_index;

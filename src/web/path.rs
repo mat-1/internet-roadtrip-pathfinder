@@ -63,6 +63,8 @@ struct GetPathQuery {
     heuristic_factor: f64,
     #[serde(default)]
     forward_penalty_on_intersections: Cost,
+    #[serde(default)]
+    non_sharp_turn_penalty: Cost,
 }
 fn get_recommended_heuristic_factor() -> f64 {
     RECOMMENDED_HEURISTIC_FACTOR
@@ -103,7 +105,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, headers: HeaderMap) {
         while let Some(msg) = rx.next().await {
             match &msg {
                 SocketEvent::Progress(progress) => {
-                    if progress.percent_done == 1. || progress.percent_done < 0. {
+                    if progress.percent_done == 1. || progress.percent_done < -0.1 {
                         *is_pathing.lock() = false;
                         info!("percent done is {}", progress.percent_done);
                     }
@@ -206,6 +208,7 @@ async fn handle_get_path_query(tx: &mut mpsc::Sender<SocketEvent>, msg: GetPathQ
         no_long_jumps: msg.no_long_jumps,
         use_option_cache: msg.use_option_cache,
         forward_penalty_on_intersections: msg.forward_penalty_on_intersections,
+        non_sharp_turn_penalty: msg.non_sharp_turn_penalty,
     };
 
     if stops.len() > 200 {

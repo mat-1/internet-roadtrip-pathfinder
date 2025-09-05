@@ -139,9 +139,10 @@ export function requestNewPath(
         id: pathId,
         no_long_jumps: !SETTINGS.allow_long_jumps,
         heuristic_factor: SETTINGS.heuristic_factor,
+        use_option_cache: SETTINGS.use_option_cache,
         forward_penalty_on_intersections:
             SETTINGS.forward_penalty_on_intersections,
-        use_option_cache: SETTINGS.use_option_cache,
+        non_sharp_turn_penalty: SETTINGS.non_sharp_turn_penalty,
     });
 }
 

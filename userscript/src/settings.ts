@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS = {
     backend_url: "https://ir.matdoes.dev",
     heuristic_factor: 3.3,
     forward_penalty_on_intersections: 0,
+    non_sharp_turn_penalty: 0,
 };
 
 export const SETTINGS = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
@@ -234,6 +235,16 @@ export function initSettingsTab() {
     addSlider(
         "Forward penalty on intersections (in seconds)",
         "forward_penalty_on_intersections",
+        0,
+        600,
+        () => {
+            clearCachedPaths();
+            refreshPath();
+        }
+    );
+    addSlider(
+        "Non-sharp turn penalty (in seconds)",
+        "non_sharp_turn_penalty",
         0,
         600,
         () => {
