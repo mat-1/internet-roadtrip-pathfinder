@@ -213,7 +213,18 @@ fn parse_getmetadata_response(
                 trace!("  link_data: {link_data}");
 
                 let link_pano_id = link_data[0][1].as_str().unwrap();
-                let lat = link_data[2][0][2].as_f64().unwrap();
+                let lat = link_data
+                    .as_array()
+                    .and_then(|a| a.get(2))
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_array())
+                    .and_then(|a| a.get(2))
+                    .and_then(|v| v.as_f64().ok_or_else(|| v.as_i64().map(|i| i as f64)).ok());
+                let Some(lat) = lat else {
+                    warn!("link missing lat: {link_data}");
+                    continue;
+                };
                 let lng = link_data[2][0][3].as_f64().unwrap();
 
                 let link = PanoLink {

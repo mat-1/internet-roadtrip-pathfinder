@@ -206,13 +206,18 @@ pub async fn astar(
         // latency (these numbers were obtained by analyzing historical data)
         let base_neighbor_cost: Cost = if neighbor_count == 1 { 5.875 } else { 9.625 };
 
-        let mut is_likely_intersection_to_penalize = false;
-        if neighbor_count > 1 && settings.forward_penalty_on_intersections > 0. {
-            // if all of the options are forward-ish, don't count it as an intersection
-            for neighbor in neighbors.options.iter() {
+        let mut straightest_option_idx = None;
+        if neighbor_count > 1
+            && (settings.forward_penalty_on_intersections > 0.
+                || settings.non_sharp_turn_penalty > 0.)
+        {
+            let mut smallest_heading_diff = 180.;
+            for (i, neighbor) in neighbors.options.iter().enumerate() {
                 let heading_diff = (neighbor.heading - node_heading).abs();
-                if heading_diff > 75. {
-                    is_likely_intersection_to_penalize = true;
+
+                if heading_diff < smallest_heading_diff {
+                    smallest_heading_diff = heading_diff;
+                    straightest_option_idx = Some(i);
                 }
             }
         }
@@ -234,12 +239,15 @@ pub async fn astar(
                 neighbor_cost -= 0.001;
             }
 
-            if is_likely_intersection_to_penalize || settings.non_sharp_turn_penalty > 0. {
+            if let Some(straightest_option_idx) = straightest_option_idx {
                 let heading_diff = (neighbor.heading - node_heading).abs();
-                if heading_diff < 75. && settings.forward_penalty_on_intersections > 0. {
+                if settings.forward_penalty_on_intersections > 0.
+                    && (i == straightest_option_idx && heading_diff < 45.)
+                {
                     neighbor_cost += settings.forward_penalty_on_intersections;
                 }
-                if heading_diff > 20. && heading_diff < 80. && settings.non_sharp_turn_penalty > 0.
+                if settings.non_sharp_turn_penalty > 0.
+                    && (heading_diff > 20. && heading_diff < 80. && i != straightest_option_idx)
                 {
                     neighbor_cost += settings.non_sharp_turn_penalty;
                 }
