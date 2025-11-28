@@ -1,4 +1,4 @@
-import { replacePathfinderInfoEl, updateDestinationFromString } from ".";
+import { pathfinderInfoEl, replacePathfinderInfoEl, updateDestinationFromString } from ".";
 import { map } from "./map";
 import { getLat, getLng, newPosition } from "./pos";
 import { addStopToPath, removeStop } from "./stops";
@@ -143,7 +143,7 @@ function setNewInfoDisplay() {
             const containerEl = document.createElement("div");
             containerEl.id = "minimap-controls";
             containerEl.className =
-                "maplibregl-ctrl maplibregl-ctrl-scale pathfinder-info";
+                "maplibregl-ctrl maplibregl-ctrl-scale";
             containerEl.style.marginRight = "36px";
 
             return containerEl;
@@ -159,7 +159,14 @@ function setNewInfoDisplay() {
 
     map.addControl(pathfinderInfoControl, "bottom-right");
 
-    replacePathfinderInfoEl(pathfinderInfoControl._container!);
+    // Move both info elements to the new container
+    const nextStopInfoEl = pathfinderInfoEl.previousElementSibling as HTMLSpanElement;
+    if (nextStopInfoEl && nextStopInfoEl.classList.contains('pathfinder-next-stop-info')) {
+        nextStopInfoEl.style.display = 'block';
+        pathfinderInfoControl._container!.appendChild(nextStopInfoEl);
+    }
+    pathfinderInfoEl.style.display = 'block';
+    pathfinderInfoControl._container!.appendChild(pathfinderInfoEl);
 }
 
 const waitForMmtControl = new Promise<MinimapTricksControl>((resolve) => {

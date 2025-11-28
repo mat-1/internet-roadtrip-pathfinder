@@ -5,7 +5,7 @@ import { LOG_PREFIX } from "../constants";
 import { findClosestPanoInPath } from "../options";
 import { getLat, getLng } from "../pos";
 import { SETTINGS } from "../settings";
-import { getPathDestinations, getUnorderedStops } from "../stops";
+import { getPathDestinations, getOrderedStops } from "../stops";
 import { sleep } from "../utils";
 
 /**
@@ -159,6 +159,14 @@ export function getFirstPath(): GeoJSON.Position[] {
 
 export let panosAdvancedInFirstPath = 0;
 export function rerenderPath(pathSourceId: CalculatingPathSourceId) {
+    const pathSource: maplibregl.GeoJSONSource | undefined =
+        map.getSource(pathSourceId);
+    
+    if (!pathSource) {
+        // Path sources haven't been set up yet
+        return;
+    }
+    
     let skip = 0;
     if (calculatingPathId !== undefined) {
         const pathDestination =
@@ -186,10 +194,7 @@ export function rerenderPath(pathSourceId: CalculatingPathSourceId) {
         path = [];
     }
 
-    const pathSource: maplibregl.GeoJSONSource | undefined =
-        map.getSource(pathSourceId);
-
-    pathSource?.setData({
+    pathSource.setData({
         type: "Feature",
         properties: {},
         geometry: {
@@ -200,6 +205,14 @@ export function rerenderPath(pathSourceId: CalculatingPathSourceId) {
 }
 
 export function rerenderCompletePathSegments() {
+    const pathSource: maplibregl.GeoJSONSource | undefined =
+        map.getSource("best_path_segments");
+    
+    if (!pathSource) {
+        // Path sources haven't been set up yet
+        return;
+    }
+    
     const multiLines: GeoJSON.Position[][] = [];
     for (const [index, stopDest] of getPathDestinations().entries()) {
         const pathId = convertDestinationToPathId(stopDest);
@@ -238,8 +251,6 @@ export function rerenderCompletePathSegments() {
         }
     }
 
-    const pathSource: maplibregl.GeoJSONSource =
-        map.getSource("best_path_segments")!;
     pathSource.setData({
         type: "Feature",
         properties: {},
@@ -284,7 +295,7 @@ export function convertDestinationToPathId(
 }
 
 export function clearCalculatingPaths() {
-    if (getUnorderedStops().length === 0) {
+    if (getOrderedStops().length === 0) {
         // persist these so we can avoid recalculating paths with many stops
 
         completePathSegments.clear();
