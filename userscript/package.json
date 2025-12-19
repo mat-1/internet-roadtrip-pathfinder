@@ -1,6 +1,6 @@
 {
   "name": "userscript",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "author": "mat",
   "description": "A somewhat reliable pathfinder for neal.fun's Internet Roadtrip.",
   "license": "0BSD",
