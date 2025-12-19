@@ -1,7 +1,8 @@
 import { map } from ".";
 import { addMarkerContextMenuListener, tricksControl } from "../mmt";
 import { getLat, getLng } from "../pos";
-import { getUnorderedStops } from "../stops";
+import { getOrderedStops, reorderStop } from "../stops";
+import { SETTINGS } from "../settings";
 
 export let destinationMarker: maplibregl.Marker;
 
@@ -38,15 +39,24 @@ export function updateDestinationMarker(position: GeoJSON.Position | null) {
         .addTo(map);
 }
 
-export async function newStopMarker(): Promise<maplibregl.Marker> {
+export async function newStopMarker(index: number): Promise<maplibregl.Marker> {
     const maplibre = await IRF.modules.maplibre;
+    const markerEl = document.createElement("div");
+    markerEl.className = "pathfinder-stop-marker";
+    
+    const imgEl = document.createElement("img");
+    imgEl.src = GM_getResourceURL("flagCheckerboardPng");
+    markerEl.appendChild(imgEl);
+    
+    if (SETTINGS.show_stops_menu) {
+        const numberEl = document.createElement("span");
+        numberEl.className = "pathfinder-stop-number";
+        numberEl.textContent = String(index + 1);
+        markerEl.appendChild(numberEl);
+    }
+    
     const marker = new maplibre.Marker({
-        element: (() => {
-            const imgEl = document.createElement("img");
-            imgEl.className = "pathfinder-stop-marker";
-            imgEl.src = GM_getResourceURL("flagCheckerboardPng");
-            return imgEl;
-        })(),
+        element: markerEl,
         anchor: "bottom-left",
     });
     addMarkerContextMenuListener(marker, "Pathfinder stop");
@@ -55,21 +65,17 @@ export async function newStopMarker(): Promise<maplibregl.Marker> {
 }
 
 export async function rerenderStopMarkers() {
-    const unorderedStops = getUnorderedStops();
+    const orderedStops = getOrderedStops();
 
-    while (stopMarkers.length > unorderedStops.length) {
-        stopMarkers.pop()!.remove();
+    for (const marker of stopMarkers) {
+        marker.remove();
     }
-    while (unorderedStops.length > stopMarkers.length) {
-        const stopMarker = await newStopMarker();
-        // coordinates are required, but they'll get updated in a moment
-        stopMarker.setLngLat([0, 0]).addTo(map);
+    stopMarkers = [];
+    
+    for (let i = 0; i < orderedStops.length; i++) {
+        const stopMarker = await newStopMarker(i);
+        const stopPos = orderedStops[i]!;
+        stopMarker.setLngLat(stopPos as [number, number]).addTo(map);
         stopMarkers.push(stopMarker);
-    }
-    // stopMarkers and unorderedStops are now the same length, now update the lat/lng for all of them
-    for (let i = 0; i < stopMarkers.length; i++) {
-        const marker = stopMarkers[i]!;
-        const stopPos = unorderedStops[i]!;
-        marker.setLngLat([getLng(stopPos), getLat(stopPos)]);
     }
 }

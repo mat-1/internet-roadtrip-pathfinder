@@ -2,11 +2,14 @@ import { refreshPath } from ".";
 import { pfWs } from "./api";
 import { LOG_PREFIX } from "./constants";
 import { clearCachedPaths, rerenderPath } from "./map/lines";
+import { rerenderStopMarkers } from "./map/markers";
+import { rerenderStopsMenu } from "./stops-menu";
 
 export const DEFAULT_SETTINGS = {
     current_searching_path: true,
     allow_long_jumps: true,
     remove_reached_stops: false,
+    show_stops_menu: false,
     // advanced settings
     use_option_cache: true,
     backend_url: "https://ir.matdoes.dev",
@@ -27,8 +30,10 @@ function saveSettings() {
     GM_setValue("settings", JSON.stringify(SETTINGS));
 }
 
+// Load settings immediately on module initialization
+loadSettingsFromSave();
+
 export function initSettingsTab() {
-    loadSettingsFromSave();
     console.log(LOG_PREFIX, "loaded settings:", SETTINGS);
 
     const settingsTab = IRF.ui.panel.createTabFor(GM.info, {
@@ -207,6 +212,10 @@ export function initSettingsTab() {
         refreshPath();
     });
     addToggle("Remove stops as they are reached", "remove_reached_stops");
+    addToggle("Show stops menu", "show_stops_menu", () => {
+        rerenderStopsMenu();
+        rerenderStopMarkers();
+    });
 
     const advancedSettingsHeaderEl = document.createElement("h2");
     advancedSettingsHeaderEl.textContent = "Advanced settings";

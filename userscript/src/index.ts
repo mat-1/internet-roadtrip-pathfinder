@@ -26,10 +26,11 @@ import {
     rerenderStopMarkers,
     updateDestinationMarker,
 } from "./map/markers";
+import { initStopsMenu, rerenderStopsMenu } from "./stops-menu";
 import { initMap, map } from "./map";
 import {
     getPathDestinations,
-    getUnorderedStops,
+    getOrderedStops,
     removeStop,
     setStops,
 } from "./stops";
@@ -37,6 +38,7 @@ import { calculateDistance, calculateHeading } from "./math";
 import { tryInitMmt } from "./mmt";
 
 export let pathfinderInfoEl: HTMLSpanElement;
+let pathfinderNextStopInfoEl: HTMLSpanElement;
 let pathfinderRefreshBtnEl: HTMLButtonElement;
 let destinationInputEl: HTMLInputElement;
 
@@ -61,6 +63,9 @@ async function init() {
     pathfinderRefreshBtnEl.classList.add("pathfinder-refresh-btn");
     pathfinderRefreshBtnEl.disabled = true;
 
+    pathfinderNextStopInfoEl = document.createElement("span");
+    pathfinderNextStopInfoEl.classList.add("pathfinder-next-stop-info");
+    
     pathfinderInfoEl = document.createElement("span");
     pathfinderInfoEl.classList.add("pathfinder-info");
     setInterval(() => {
@@ -93,11 +98,34 @@ async function init() {
 
             const prettyEta = prettyTime(adjustedCost);
             pathfinderInfoEl.textContent = `ETA: ${prettyEta}`;
+            
+            // Calculate next stop ETA
+            const destinations = getPathDestinations();
+            if (destinations.length > 0) {
+                const firstDest = destinations[0]!;
+                const firstPathId = convertDestinationToPathId(firstDest);
+                if (firstPathId !== undefined) {
+                    const firstSegmentCost = pathSegmentCosts.get(firstPathId);
+                    const firstSegmentPath = completePathSegments.get(firstPathId);
+                    if (firstSegmentCost !== undefined && firstSegmentPath !== undefined) {
+                        let nextStopCost = firstSegmentCost - secondsSinceLastCostRecalculation;
+                        const nextStopPanos = firstSegmentPath.length;
+                        const nextStopAdvancedPercentage = panosAdvancedInFirstPath / nextStopPanos;
+                        const adjustedNextStopCost = nextStopCost * (1 - nextStopAdvancedPercentage);
+                        
+                        const prettyNextStopEta = prettyTime(adjustedNextStopCost);
+                        pathfinderNextStopInfoEl.textContent = `Next: ${prettyNextStopEta}`;
+                    }
+                }
+            } else {
+                pathfinderNextStopInfoEl.textContent = "";
+            }
         }
     }, 1000);
 
     pathfinderContainerEl.appendChild(destinationInputEl);
     pathfinderContainerEl.appendChild(pathfinderRefreshBtnEl);
+    pathfinderContainerEl.appendChild(pathfinderNextStopInfoEl);
     pathfinderContainerEl.appendChild(pathfinderInfoEl);
 
     vdomContainer.state.updateData = new Proxy(vdomContainer.state.updateData, {
@@ -113,6 +141,7 @@ async function init() {
     mapContainerEl.appendChild(pathfinderContainerEl);
 
     await initMarkers();
+    initStopsMenu(mapContainerEl);
 
     destinationInputEl.addEventListener("change", () => {
         console.debug(LOG_PREFIX, "destination input changed");
@@ -246,6 +275,7 @@ export function onProgress(data: api.PathfinderMessage) {
 function abortPathfinding() {
     // note that this will get set again when the server sends us a progress update with percent_done being -1
     if (pathfinderInfoEl) pathfinderInfoEl.textContent = "";
+    if (pathfinderNextStopInfoEl) pathfinderNextStopInfoEl.textContent = "";
 
     if (api.calculatingPathId !== undefined) {
         api.sendWebSocketMessage({
@@ -261,6 +291,7 @@ function abortPathfinding() {
  */
 export function clearAllPaths() {
     pathfinderInfoEl.textContent = "";
+    pathfinderNextStopInfoEl.textContent = "";
     resetRenderedPath();
 }
 
@@ -276,6 +307,7 @@ export function updateDestinationFromString(destString: string) {
         clearCalculatingPaths();
         rerenderCompletePathSegments();
         rerenderStopMarkers();
+        rerenderStopsMenu();
         clearAllPaths();
 
         return;
@@ -325,7 +357,7 @@ async function onUpdateData(msg: RoadtripMessage) {
     if (locationChanged) clearOptionHighlights();
 
     if (SETTINGS.remove_reached_stops) {
-        const remainingStops = getUnorderedStops();
+        const remainingStops = getOrderedStops();
         for (const stop of [...remainingStops]) {
             if (calculateDistance(stop, curPos) < 15 /* meters */) {
                 removeStop(stop);
@@ -399,9 +431,11 @@ function injectStylesheet() {
         line-height: 1;
         padding: 0.2em;
       }
-      & .pathfinder-info {
+      & .pathfinder-info,
+      & .pathfinder-next-stop-info {
         background-color: #fff;
         padding: 0.1em 0.3em;
+        display: block;
       }
     }
 
@@ -410,7 +444,8 @@ function injectStylesheet() {
         display: none;
       }
 
-      & .pathfinder-info {
+      & .pathfinder-info,
+      & .pathfinder-next-stop-info {
         margin-right: 36px;
 
         &:empty {
@@ -424,8 +459,143 @@ function injectStylesheet() {
       cursor: default;
     }
     .pathfinder-stop-marker {
-      width: 15px;
       cursor: default;
+    }
+    .pathfinder-stop-marker img {
+      width: 20px;
+      display: block;
+    }
+    .pathfinder-stop-number {
+      position: absolute;
+      bottom: 0px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: white;
+      border: 1px solid #333;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: bold;
+      color: #333;
+      pointer-events: none;
+    }
+    
+    .pathfinder-stops-menu {
+      position: absolute;
+      top: 50px;
+      left: 10px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      z-index: 1000;
+      max-width: 400px;
+      max-height: 400px;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .pathfinder-stops-menu-header {
+      padding: 8px 12px;
+      background: #f5f5f5;
+      border-bottom: 1px solid #ccc;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    
+    .pathfinder-stops-list {
+      overflow-y: auto;
+      max-height: 350px;
+    }
+    
+    .pathfinder-stop-item {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+      cursor: grab;
+      gap: 8px;
+      transition: background-color 0.2s;
+    }
+    .pathfinder-stop-item:hover {
+      background: #f9f9f9;
+    }
+    .pathfinder-stop-item.dragging {
+      opacity: 0.5;
+      cursor: grabbing;
+    }
+    .pathfinder-stop-item.drag-over {
+      background: #e3f2fd;
+      border-color: #2196f3;
+    }
+    .pathfinder-stop-item:last-child {
+      border-bottom: none;
+    }
+    
+    .pathfinder-stop-item-number {
+      flex-shrink: 0;
+      background: #2196f3;
+      color: white;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    
+    .pathfinder-stop-item-coords {
+      flex-grow: 1;
+      font-size: 12px;
+      font-family: monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .pathfinder-stop-item-controls {
+      display: grid;
+      grid-template-columns: 24px 24px 24px;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    
+    .pathfinder-stop-btn {
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      width: 24px;
+      height: 24px;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: all 0.2s;
+    }
+    .pathfinder-stop-btn:hover {
+      background: #f5f5f5;
+      border-color: #999;
+    }
+    .pathfinder-stop-btn:active {
+      background: #e0e0e0;
+    }
+    
+    .pathfinder-stop-btn-remove {
+      color: #d32f2f;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .pathfinder-stop-btn-remove:hover {
+      background: #ffebee;
+      border-color: #d32f2f;
     }
     .pathfinder-chosen-option path {
       fill: #f0f !important;
