@@ -172,16 +172,22 @@ fn filter_panos_at_tile_into(
         })
         .unwrap_err();
 
-    panos_at_tile[first_within_lat..first_outside_lat]
-        .iter()
-        .filter_map(|p| {
-            if math::is_at_least_within_radius(loc, p.search_loc, max_distance, lng_m_per_degree) {
-                Some(p.clone())
-            } else {
-                None
-            }
-        })
-        .collect_into(collect_into);
+    collect_into.extend(
+        panos_at_tile[first_within_lat..first_outside_lat]
+            .iter()
+            .filter_map(|p| {
+                if math::is_at_least_within_radius(
+                    loc,
+                    p.search_loc,
+                    max_distance,
+                    lng_m_per_degree,
+                ) {
+                    Some(p.clone())
+                } else {
+                    None
+                }
+            }),
+    );
 }
 
 #[must_use]

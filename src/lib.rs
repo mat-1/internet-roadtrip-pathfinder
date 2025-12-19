@@ -1,6 +1,3 @@
-#![feature(stmt_expr_attributes)]
-#![feature(iter_collect_into)]
-
 use serde::{Deserialize, Serialize};
 
 pub mod astar;

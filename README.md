@@ -10,13 +10,15 @@ The commit history was reset when the repo was published, some code contribution
 
 ## Development
 
+For building the userscript, you will need [Bun](https://bun.sh) installed.
+
+For building the backend, you will need [Rust](https://rust-lang.org/tools/install/) installed.
+
 ```sh
 # optional, build the userscript
 cd userscript && bun run build && cd ..
 
-# install Rust nightly, if you don't already have it
-rustup install nightly && rustup default nightly
-
+# build and run the backend in release mode
 cargo r -r
 # website is now running at http://localhost:2397/meowing
 ```

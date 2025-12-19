@@ -373,9 +373,25 @@ fn build_getmetadata_request(pano_ids: &[Cow<'_, str>]) -> simd_json::OwnedValue
         queries.push(json!([[frontend, pano_id]]));
     }
 
-    #[rustfmt::skip]
     // the thing with null and [[0]] is required to make it always give us a heading
-    json!([["apiv3",null,null,null,"US",null,null,null,null,null,[[0]]], ["en", "US"], queries, [6]])
+    json!([
+        [
+            "apiv3",
+            null,
+            null,
+            null,
+            "US",
+            null,
+            null,
+            null,
+            null,
+            null,
+            [[0]]
+        ],
+        ["en", "US"],
+        queries,
+        [6]
+    ])
 }
 
 pub fn is_third_party_pano(pano_id: &str) -> bool {
